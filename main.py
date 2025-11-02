@@ -8,7 +8,7 @@ from datetime import datetime
 import re
 from typing import List, Optional
 
-app = FastAPI(title="Rock Think")
+app = FastAPI(title="rocthinc")
 
 class Message(BaseModel):
     speaker: str
@@ -57,7 +57,7 @@ async def export(req: ExportRequest):
     else:
         raise HTTPException(400, "Need url or messages+key")
 
-    lines = [f"# Rock Think Export\n**From silicon to thought to getting defeated by a pair of scissors.**\n**Source:** {data['source']}\n**URL:** {data.get('url','private')}\n**Exported:** {datetime.now().isoformat()}\n---\n"]
+    lines = [f"# rocthinc Export\n**From silicon to thought to getting defeated by a pair of scissors.**\n**Source:** {data['source']}\n**URL:** {data.get('url','private')}\n**Exported:** {datetime.now().isoformat()}\n---\n"]
     for m in data['messages']:
         lines.append(f"## {m['speaker'].title()}\n{m['content']}\n---")
     content = "\n".join(lines)
@@ -71,4 +71,4 @@ async def export(req: ExportRequest):
 
 @app.get("/")
 def home():
-    return {"msg": "Rock Think LIVE! POST /export"}
+    return {"msg": "rocthinc is /export"}
