@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>rocthinc — from chat to chapter</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="description" content="rocthinc formats conversation into clean, structured documents—stateless and fast." />
+  <meta property="og:title" content="rocthinc — from chat to chapter">
+  <meta property="og:description" content="Share a chat → get a document. Stateless by design.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://rocthinc.cc">
+  <style>
+    :root{ --bg:#0e0f12; --panel:#15171b; --ink:#e8ecf3; --muted:#9aa3ad; --line:#232730; --accent:#7aa2ff; --accent-2:#8ef0de; }
+    *{box-sizing:border-box}
+    html,body{margin:0;background:var(--bg);color:var(--ink);font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Inter,Roboto,sans-serif}
+    .wrap{max-width:980px;margin:0 auto;padding:28px}
+    header{display:flex;align-items:center;gap:12px;margin:18px 0 28px}
+    .dot{width:12px;height:12px;border-radius:50%;background:var(--accent);box-shadow:0 0 18px var(--accent)}
+    h1{margin:0;font-size:28px;letter-spacing:.2px}
+    .hero{display:grid;grid-template-columns:1.1fr .9fr;gap:22px}
+    @media (max-width:950px){
+      .hero{grid-template-columns:1fr;gap:14px}
+      .card{padding:16px}
+      p.lead{font-size:.95rem}
+      code{font-size:.85rem;word-break:break-word}
+    }
+    .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:22px}
+    p.lead{color:var(--muted);margin:.25rem 0 1rem;line-height:1.5}
+    ul{padding-left:18px;margin:10px 0}
+    li{margin:.4rem 0;color:var(--muted)}
+    .cta{display:inline-flex;gap:10px;align-items:center;background:linear-gradient(135deg,var(--accent),var(--accent-2));color:#051018;text-decoration:none;font-weight:700;border-radius:12px;padding:12px 16px;margin-top:10px}
+    .cta:active{transform:translateY(1px)}
+    .tiny{font-size:12px;color:var(--muted);margin-top:8px}
+    .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
+    footer{margin:28px 0 8px;color:var(--muted);font-size:12px;text-align:center}
+    .pill{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:6px 10px;color:var(--muted);font-size:12px}
+    .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:16px}
+    @media (max-width:900px){.grid{grid-template-columns:1fr}}
+    .k{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px}
+    .tag{font-size:12px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em}
+    code{background:#0c0f13;border:1px solid #1f2430;padding:2px 6px;border-radius:6px}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="dot"></div>
+      <h1>.rocthinc</h1>
+      <span class="pill">from chat to chapter</span>
+    </header>
+
+    <section class="hero">
+      <div class="card">
+        <p class="lead">
+          <strong>rocthinc</strong> formats conversation into clear, structured documents—fast and stateless.
+          Share a chat, and rocthinc returns a polished Markdown file <strong>without storing your data</strong>.
+          Simple. Organized. You keep the file.
+        </p>
+        <ul>
+          <li>Reads multi-speaker chats and preserves role structure.</li>
+          <li>Exports crisp Markdown (and HTML) with a hash for integrity—<strong>no server-side retention</strong>.</li>
+          <li>Lightweight REST API: <span class="mono">POST /export</span></li>
+        </ul>
+
+        <a class="cta" href="https://rocthinc.up.railway.app" target="_blank" rel="noopener">Open the app →</a>
+        <div class="tiny">Note: the app may be private during setup; the link remains constant.</div>
+      </div>
+
+      <div class="card">
+        <div class="tag">how it works</div>
+        <ol style="margin:0;color:var(--muted);padding-left:18px;line-height:1.5">
+          <li>Send or share a chat transcript with rocthinc.</li>
+          <li>It parses, cleans, and formats each message.</li>
+          <li>It hashes your export and returns the file—<strong>then discards the input</strong>.</li>
+        </ol>
+        <div style="height:10px"></div>
+        <div class="tag">sample request</div>
+        <code>curl -X POST https://rocthinc.up.railway.app/export \
+  -H "Content-Type: application/json" \
+  -d '{"messages":[{"speaker":"user","content":"Save this"},{"speaker":"assistant","content":"Done."}]}' \
+  --output export.md</code>
+      </div>
+    </section>
+
+    <section class="grid">
+      <div class="k">
+        <div class="tag">the name</div>
+        <p>rocthinc — Born of silicon, shaped to format your words and return them beautifully—<strong>no memory, no storage, just a little bit of<em> thinking.</em> </strong> </p>
+      </div>
+      <div class="k">
+        <div class="tag">privacy</div>
+        <p><strong>Stateless by design.</strong> rocthinc processes the content you submit for each individual request as an input, then outputs that content as a formatted document for you to save, and discards the data. No analytics, no background retention.</p>
+      </div>
+      <div class="k">
+        <div class="tag">status</div>
+        <p>Soft-launch. Public mode opens soon.</p>
+      </div>
+    </section>
+
+    <footer>© <span id="y"></span> rocthinc — a thinking rock that writes.</footer>
+  </div>
+  <script>document.getElementById('y').textContent = new Date().getFullYear()</script>
+</body>
+</html>
