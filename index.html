@@ -89,13 +89,10 @@
       <div class="card">
         <p class="lead">
           Paste a shared AI chat URL (ChatGPT, Claude, etc.), choose formats, and rocthinc will export it
-          as Markdown + LaTeX in a single <code>.zip</code>. Your Shortcut can hit the same
-          <code>POST /export</code> endpoint.
+          as Markdown + LaTeX in a single <code>.zip</code>.
         </p>
 
-        <label>
-          Chat URL
-        </label>
+        <label>Chat URL</label>
         <input id="url" type="text" placeholder="https://share.chatgpt.com/..." />
 
         <div style="margin-top:10px;font-size:13px;color:var(--muted);">Formats</div>
@@ -169,14 +166,27 @@ Content-Type: application/json
           body: JSON.stringify({ url, formats })
         });
 
+        /*  ⭐⭐⭐ KEY FIX BELOW ⭐⭐⭐  
+            This block extracts the human-readable message from FastAPI
+            so users see clean explanations instead of raw JSON.
+        */
         if (!res.ok) {
-          const text = await res.text();
-          statusEl.textContent = 'Error: ' + text;
+          let text = await res.text();
+
+          try {
+            const parsed = JSON.parse(text);
+            if (parsed.detail) text = parsed.detail;
+          } catch (_) {
+            // leave as-is if not JSON
+          }
+
+          statusEl.textContent = text;
           statusEl.className = 'status err';
           btn.disabled = false;
           return;
         }
 
+        // successful zip download
         const blob = await res.blob();
         const urlObj = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
