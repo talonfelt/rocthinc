@@ -1,30 +1,22 @@
-# main.py — rocthinc server
+# main.py — rocthinc server + web UI
 #
-# POST /export
-# Body: { "url": "https://...", "formats": ["md", "tex", "pdf"] }
+# GET  /        → serves index.html (UI)
+# POST /export  → takes {url, formats} JSON and returns a ZIP
 #
-# Returns: ZIP file containing:
-#   - conversation.md (if "md" requested)
-#   - conversation.tex (if "tex" requested)
-#   - README_PDF.txt placeholder (if "pdf" requested)
-#
-# This mirrors the Pythonista UI behavior:
-# - Fetches a shared conversation URL
-# - Strips HTML to rough text
-# - Wraps it in a simple {source, url, created_at, messages[]} shape
-# - Exports Markdown + LaTeX from that.
+# This works with:
+#  - Your iOS Shortcut (POST /export)
+#  - The web UI (index.html uses fetch('/export', ...))
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, HTMLResponse
 from pydantic import BaseModel
 from typing import List, Literal, Optional
 from io import BytesIO
+from pathlib import Path
 import zipfile
 import requests
 import time
 import re
-
-# ---------- FastAPI setup ----------
 
 app = FastAPI(
     title="rocthinc",
@@ -37,13 +29,12 @@ ExportFormat = Literal["md", "tex", "pdf"]
 
 class ExportRequest(BaseModel):
     url: str
-    formats: Optional[List[ExportFormat]] = None  # default set in /export
+    formats: Optional[List[ExportFormat]] = None  # default in /export
 
 
-# ---------- Parsing helpers (mirroring Pythonista) ----------
+# ---------- Parsing helpers (same as Pythonista UI) ----------
 
 def strip_html_to_text(html: str) -> str:
-    """Very rough HTML → plain text, same idea as Pythonista UI."""
     html = re.sub(r"<script.*?</script>", "", html, flags=re.S | re.I)
     html = re.sub(r"<style.*?</style>", "", html, flags=re.S | re.I)
     html = re.sub(r"<[^>]+>", " ", html)
@@ -65,20 +56,6 @@ def detect_source(url: str, html: str) -> str:
 
 
 def parse_conversation(url: str) -> dict:
-    """
-    Fetch the URL and build the same 'conv' shape
-    as the Pythonista local UI:
-
-    {
-      'source': ...,
-      'url': ...,
-      'created_at': ...,
-      'messages': [
-        {'speaker': 'user', 'content': ...},
-        {'speaker': 'assistant', 'content': ...},
-      ]
-    }
-    """
     try:
         resp = requests.get(url, timeout=20)
         resp.raise_for_status()
@@ -89,7 +66,6 @@ def parse_conversation(url: str) -> dict:
     source = detect_source(url, html)
     text = strip_html_to_text(html)
 
-    # keep from exploding on very long pages
     max_len = 5000
     if len(text) > max_len:
         text = text[:max_len] + " … [truncated]"
@@ -106,7 +82,7 @@ def parse_conversation(url: str) -> dict:
     return conv
 
 
-# ---------- Export helpers (same logic as Pythonista) ----------
+# ---------- Export helpers ----------
 
 def to_markdown(conv: dict) -> str:
     lines = []
@@ -164,28 +140,24 @@ def to_latex(conv: dict) -> str:
 
 # ---------- Routes ----------
 
-@app.get("/")
-def root():
-    return JSONResponse(
-        {
-            "msg": "rocthinc online",
-            "hint": "POST /export { url, formats }",
-            "example": {
-                "url": "https://share.chatgpt.com/...",
-                "formats": ["md", "tex"],
-            },
-        }
-    )
+@app.get("/", response_class=HTMLResponse)
+def web_ui():
+    """Serve the HTML UI from index.html."""
+    html_path = Path(__file__).parent / "index.html"
+    if not html_path.exists():
+        return HTMLResponse(
+            "<h1>rocthinc</h1><p>index.html not found on server.</p>",
+            status_code=500,
+        )
+    return html_path.read_text(encoding="utf-8")
 
 
 @app.post("/export")
 def export(req: ExportRequest):
-    # default formats if none provided
     formats: List[ExportFormat] = req.formats or ["md", "tex"]
 
     conv = parse_conversation(req.url)
 
-    # Build in-memory ZIP
     buf = BytesIO()
     with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as z:
         if "md" in formats:
@@ -197,10 +169,9 @@ def export(req: ExportRequest):
             z.writestr("conversation.tex", tex)
 
         if "pdf" in formats:
-            # Placeholder to keep the API surface ready for when you add real PDF export
             z.writestr(
                 "README_PDF.txt",
-                "PDF export is not implemented in this build.\n"
+                "PDF export not implemented yet. "
                 "Use conversation.tex to compile a PDF locally.",
             )
 
@@ -208,10 +179,12 @@ def export(req: ExportRequest):
     return StreamingResponse(
         buf,
         media_type="application/zip",
-        headers={"Content-Disposition": 'attachment; filename=\"conversation_export.zip\"'},
+        headers={
+            "Content-Disposition": 'attachment; filename="conversation_export.zip"'
+        },
     )
 
-# Optional: for local dev, not needed on Railway
+# For local dev only:
 # if __name__ == "__main__":
 #     import uvicorn
 #     uvicorn.run(app, host="0.0.0.0", port=8000)
