@@ -4,7 +4,11 @@
   <meta charset="utf-8" />
   <title>rocthinc — from chat to chapter</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <meta name="description" content="Paste a shared AI chat URL → get Markdown + LaTeX exports." />
+  <meta name="description" content="Paste the URL of an AI chat you have open → get Markdown + LaTeX exports." />
+  <meta property="og:title" content="rocthinc — from chat to chapter">
+  <meta property="og:description" content="Paste the URL of a chat you can see in your browser and rocthinc turns it into clean documents.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://rocthinc.cc">
   <style>
     :root{
       --bg:#0e0f12;
@@ -32,6 +36,8 @@
     @media (max-width:950px){
       .hero{grid-template-columns:1fr;gap:14px}
       .card{padding:16px}
+      p.lead{font-size:.95rem}
+      code{font-size:.85rem;word-break:break-word}
     }
     .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:22px}
     p.lead{color:var(--muted);margin:.25rem 0 1rem;line-height:1.5}
@@ -88,12 +94,12 @@
       <!-- Left: interactive UI -->
       <div class="card">
         <p class="lead">
-          Paste a shared AI chat URL (ChatGPT, Claude, etc.), choose formats, and rocthinc will export it
+          Paste the URL of an AI chat you have open (ChatGPT, Claude, etc.), choose formats, and rocthinc will export it
           as Markdown + LaTeX in a single <code>.zip</code>.
         </p>
 
         <label>Chat URL</label>
-        <input id="url" type="text" placeholder="https://share.chatgpt.com/..." />
+        <input id="url" type="text" placeholder="https://chatgpt.com/c/..." />
 
         <div style="margin-top:10px;font-size:13px;color:var(--muted);">Formats</div>
         <label><input id="fmt-md" type="checkbox" checked /> Markdown (.md)</label>
@@ -106,19 +112,20 @@
 
         <div id="status" class="status"></div>
         <div class="tiny">
-          Nothing is stored server-side. rocthinc fetches the URL, converts, and streams the file back.
+          Make sure you can see the full chat in a browser tab before you copy the URL.
+          rocthinc can’t click “Continue in browser” or log in for you.
         </div>
       </div>
 
       <!-- Right: API docs / example -->
       <div class="card">
         <div style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">API</div>
-        <p class="lead">Use the same backend from Shortcuts, scripts, or other apps.</p>
+        <p class="lead">Use the same backend from scripts or other tools.</p>
         <pre>POST /export
 Content-Type: application/json
 
 {
-  "url": "https://share.chatgpt.com/...",
+  "url": "https://chatgpt.com/c/...",
   "formats": ["md","tex"]
 }</pre>
         <p class="tiny">
@@ -166,27 +173,22 @@ Content-Type: application/json
           body: JSON.stringify({ url, formats })
         });
 
-        /*  ⭐⭐⭐ KEY FIX BELOW ⭐⭐⭐  
-            This block extracts the human-readable message from FastAPI
-            so users see clean explanations instead of raw JSON.
-        */
+        // If backend says "login/forbidden/app wall", show the message — DO NOT download anything.
         if (!res.ok) {
           let text = await res.text();
-
           try {
             const parsed = JSON.parse(text);
             if (parsed.detail) text = parsed.detail;
           } catch (_) {
-            // leave as-is if not JSON
+            // leave text as-is if not JSON
           }
-
           statusEl.textContent = text;
           statusEl.className = 'status err';
           btn.disabled = false;
           return;
         }
 
-        // successful zip download
+        // Successful export → download the zip
         const blob = await res.blob();
         const urlObj = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
