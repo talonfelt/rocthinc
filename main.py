@@ -1,10 +1,11 @@
-# main.py — rocthinc server + web UI + ChatGPT share parser
+# main.py — rocthinc server + web UI + ChatGPT share parser (DOM-first + clear errors)
 #
 # GET  /          → serves index.html (landing)
 # GET  /export    → ?url=...&formats=md,tex (no JSON needed)
 # POST /export    → { "url": "...", "formats": ["md","tex"] } (JSON API)
 #
 # Exports a ZIP containing conversation.md / conversation.tex.
+# If the URL is login/forbidden/app-wall, returns a clear error message instead of a zip.
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import StreamingResponse, HTMLResponse
@@ -21,7 +22,7 @@ from bs4 import BeautifulSoup
 
 app = FastAPI(
     title="rocthinc",
-    version="0.3.0",
+    version="0.4.0",
     description="Share URL → Markdown / LaTeX (zip)."
 )
 
@@ -57,20 +58,111 @@ def detect_source(url: str, html: str) -> str:
     return "unknown"
 
 
+def fetch_html_or_explain(url: str) -> str:
+    """
+    Fetch HTML and raise a clear HTTPException if we hit
+    login/forbidden/app walls instead of real content.
+    """
+    try:
+        resp = requests.get(url, timeout=20)
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"rocthinc could not reach that URL. "
+                   f"Check that it’s correct and publicly reachable. (Details: {e})"
+        )
+
+    # Status code handling
+    if resp.status_code in (401, 403):
+        raise HTTPException(
+            status_code=400,
+            detail="The URL you pasted is returning a 'login required' or 'forbidden' page. "
+                   "rocthinc can only read chats that are visible without signing in. "
+                   "Try using that platform’s share button to generate a public link, then paste THAT URL here."
+        )
+    if resp.status_code >= 400:
+        raise HTTPException(
+            status_code=400,
+            detail=f"The URL you pasted returned HTTP {resp.status_code}. "
+                   "rocthinc can only export pages that load normally in a browser without extra steps."
+        )
+
+    html = resp.text
+    lower = html.lower()
+
+    # Heuristic login-page detection
+    if any(w in lower for w in ("login", "log in", "sign in", "signin", "authentication")) and \
+       ("password" in lower or "forgot password" in lower):
+        raise HTTPException(
+            status_code=400,
+            detail="This looks like a login page, not the chat itself. "
+                   "rocthinc can only export chats that are visible to anyone with the link. "
+                   "If your AI platform has a 'Share' button, tap that and paste the resulting URL instead."
+        )
+
+    # Heuristic "open in app" / interstitial detection
+    if "open in app" in lower or "download our app" in lower:
+        raise HTTPException(
+            status_code=400,
+            detail="The URL you pasted looks like an 'open in app' or app install screen, not the chat itself. "
+                   "Open the conversation in a normal browser tab so you can see the messages, then copy THAT tab’s URL "
+                   "and paste it into rocthinc."
+        )
+
+    return html
+
+
+def parse_chatgpt_dom(html: str, url: str):
+    """
+    First attempt for ChatGPT-style pages: read the DOM and extract
+    message blocks marked with data-message-author-role.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    nodes = soup.find_all(attrs={"data-message-author-role": True})
+    if not nodes:
+        return None
+
+    messages = []
+    for node in nodes:
+        role = node.get("data-message-author-role") or "assistant"
+        text = node.get_text("\n", strip=True)
+        if not text:
+            continue
+        messages.append(
+            {
+                "speaker": role,
+                "content": text,
+            }
+        )
+
+    if not messages:
+        return None
+
+    conv = {
+        "source": "chatgpt",
+        "url": url,
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "messages": messages,
+    }
+    return conv
+
+
 def parse_chatgpt_share_from_html(html: str, url: str):
     """
-    Parse a ChatGPT shared conversation using the JSON embedded in
-    <script id="__NEXT_DATA__">, which contains pageProps.serverResponse.data
-    with a 'mapping' field of messages.  [oai_citation:1‡Greasy Fork](https://greasyfork.org/en/scripts/456055-chatgpt-exporter/code?utm_source=chatgpt.com)
+    Backup: parse a ChatGPT shared conversation using the JSON embedded in
+    <script id="__NEXT_DATA__">, which contains a 'mapping' field of messages.
     """
     soup = BeautifulSoup(html, "html.parser")
     script = soup.find("script", id="__NEXT_DATA__")
     if not script or not script.string:
         return None
 
-    data = json.loads(script.string)
+    try:
+        data = json.loads(script.string)
+    except Exception:
+        return None
 
-    # Try both Next.js + Remix shapes used on share pages.
+    # Try both Next.js + Remix-like shapes used on share pages.
     server_data = None
     try:
         server_data = (
@@ -103,7 +195,7 @@ def parse_chatgpt_share_from_html(html: str, url: str):
     # Extract messages
     items = []
     order_counter = 0
-    for key, node in mapping.items():
+    for _, node in mapping.items():
         message = node.get("message")
         if not message:
             continue
@@ -140,10 +232,10 @@ def parse_chatgpt_share_from_html(html: str, url: str):
     roles_keep = {"user", "assistant", "system"}
     items = [m for m in items if m["author"] in roles_keep and m["text"]]
 
-    items.sort(key=lambda m: (m["create_time"] or 0, m["order"]))
-
     if not items:
         return None
+
+    items.sort(key=lambda m: (m["create_time"] or 0, m["order"]))
 
     messages = []
     for m in items:
@@ -164,38 +256,33 @@ def parse_chatgpt_share_from_html(html: str, url: str):
     return conv
 
 
-def fetch_html(url: str) -> str:
-    try:
-        resp = requests.get(url, timeout=20)
-        resp.raise_for_status()
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Error fetching URL: {e}")
-    return resp.text
-
-
 def parse_conversation(url: str) -> dict:
     """
     Main entry: fetch page, detect source, dispatch to parser.
-    - For ChatGPT share links: try structured parser.
+    - For ChatGPT-style links: try DOM parser, then JSON parser.
     - Otherwise: fallback to crude text scrape.
+    - If the URL is login/forbidden/app wall, fetch_html_or_explain()
+      raises HTTPException with a human-friendly error string.
     """
-    html = fetch_html(url)
+    html = fetch_html_or_explain(url)
     source = detect_source(url, html)
 
-    # Try ChatGPT-specific parser
     if source == "chatgpt":
+        conv = parse_chatgpt_dom(html, url)
+        if conv is not None:
+            return conv
+
         conv = parse_chatgpt_share_from_html(html, url)
         if conv is not None:
             return conv
 
-    # Fallback: previous simple behavior
+    # Generic fallback: treat whole page as one assistant message
     text = strip_html_to_text(html)
-    max_len = 5000
+    max_len = 20000
     if len(text) > max_len:
         text = text[:max_len] + " … [truncated]"
 
     messages = [
-        {"speaker": "user", "content": "Shared conversation: " + url},
         {"speaker": "assistant", "content": text},
     ]
     return {
