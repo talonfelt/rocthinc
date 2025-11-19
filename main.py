@@ -1,115 +1,112 @@
-# main.py  — rocthinc URL → Markdown / LaTeX (zip)
+# main.py — rocthinc server
 #
 # POST /export
-# Body: { "url": "...", "formats": ["md","tex"] }
+# Body: { "url": "https://...", "formats": ["md", "tex", "pdf"] }
 #
-# Returns: ZIP with conversation.md and/or conversation.tex
+# Returns: ZIP file containing:
+#   - conversation.md (if "md" requested)
+#   - conversation.tex (if "tex" requested)
+#   - README_PDF.txt placeholder (if "pdf" requested)
 #
-# NOTE:
-# - Markdown + LaTeX export WORK right away (as long as requests can fetch the URL).
-# - PDF is not implemented here yet (needs extra libraries / binaries).
-# - HTML parsing is deliberately simple (stub) and should be upgraded later.
+# This mirrors the Pythonista UI behavior:
+# - Fetches a shared conversation URL
+# - Strips HTML to rough text
+# - Wraps it in a simple {source, url, created_at, messages[]} shape
+# - Exports Markdown + LaTeX from that.
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
+from typing import List, Literal, Optional
 from io import BytesIO
 import zipfile
 import requests
 import time
 import re
-from typing import List, Literal, Optional
 
-app = FastAPI(title="rocthinc", version="0.1.0")
+# ---------- FastAPI setup ----------
 
-
-# ---------- Models ----------
+app = FastAPI(
+    title="rocthinc",
+    version="0.1.0",
+    description="Share URL → Markdown / LaTeX (zip)."
+)
 
 ExportFormat = Literal["md", "tex", "pdf"]
 
 
 class ExportRequest(BaseModel):
     url: str
-    formats: Optional[List[ExportFormat]] = None  # default set below
+    formats: Optional[List[ExportFormat]] = None  # default set in /export
 
 
-# ---------- Helpers ----------
+# ---------- Parsing helpers (mirroring Pythonista) ----------
+
+def strip_html_to_text(html: str) -> str:
+    """Very rough HTML → plain text, same idea as Pythonista UI."""
+    html = re.sub(r"<script.*?</script>", "", html, flags=re.S | re.I)
+    html = re.sub(r"<style.*?</style>", "", html, flags=re.S | re.I)
+    html = re.sub(r"<[^>]+>", " ", html)
+    html = re.sub(r"\s+", " ", html).strip()
+    return html
+
 
 def detect_source(url: str, html: str) -> str:
-    url_lower = url.lower()
-    if "claude.ai" in url_lower:
+    url_l = url.lower()
+    if "claude.ai" in url_l:
         return "claude"
-    if "chatgpt.com" in url_lower or "openai.com" in url_lower:
+    if "chatgpt.com" in url_l or "openai.com" in url_l:
         return "chatgpt"
-    if "perplexity.ai" in url_lower:
+    if "perplexity.ai" in url_l:
         return "perplexity"
-    # crude fallbacks
     if "assistant" in html.lower():
         return "generic-ai"
     return "unknown"
 
 
-def fetch_page(url: str) -> str:
+def parse_conversation(url: str) -> dict:
+    """
+    Fetch the URL and build the same 'conv' shape
+    as the Pythonista local UI:
+
+    {
+      'source': ...,
+      'url': ...,
+      'created_at': ...,
+      'messages': [
+        {'speaker': 'user', 'content': ...},
+        {'speaker': 'assistant', 'content': ...},
+      ]
+    }
+    """
     try:
         resp = requests.get(url, timeout=20)
+        resp.raise_for_status()
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error fetching URL: {e}")
-    if resp.status_code != 200:
-        raise HTTPException(status_code=400, detail=f"Fetch failed with status {resp.status_code}")
-    return resp.text
 
-
-def strip_html_to_text(html: str) -> str:
-    # Very rough: remove tags and collapse whitespace.
-    text = re.sub(r"<script.*?</script>", "", html, flags=re.S | re.I)
-    text = re.sub(r"<style.*?</style>", "", text, flags=re.S | re.I)
-    text = re.sub(r"<[^>]+>", " ", text)       # strip tags
-    text = re.sub(r"\s+", " ", text).strip()   # collapse whitespace
-    return text
-
-
-def parse_conversation_from_url(url: str) -> dict:
-    """
-    CURRENT STATE:
-    - Fetches the page.
-    - Detects platform (very roughly).
-    - Produces a flat "conversation" with 2 messages:
-        user: original URL
-        assistant: stripped page text (truncated).
-    TODO:
-    - Replace this with real per-platform HTML parsers.
-    """
-    html = fetch_page(url)
+    html = resp.text
     source = detect_source(url, html)
-    plain = strip_html_to_text(html)
+    text = strip_html_to_text(html)
 
-    # truncate huge pages so you at least get a file, not a 50MB blob
-    max_len = 4000
-    if len(plain) > max_len:
-        plain = plain[:max_len] + " … [truncated]"
+    # keep from exploding on very long pages
+    max_len = 5000
+    if len(text) > max_len:
+        text = text[:max_len] + " … [truncated]"
 
-    messages = [
-        {
-            "id": "m1",
-            "speaker": "user",
-            "content": f"Shared conversation: {url}",
-        },
-        {
-            "id": "m2",
-            "speaker": "assistant",
-            "content": plain,
-        },
-    ]
-
-    return {
+    conv = {
         "source": source,
         "url": url,
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "messages": messages,
+        "messages": [
+            {"speaker": "user", "content": "Shared conversation: " + url},
+            {"speaker": "assistant", "content": text},
+        ],
     }
+    return conv
 
 
-# ---------- Exporters ----------
+# ---------- Export helpers (same logic as Pythonista) ----------
 
 def to_markdown(conv: dict) -> str:
     lines = []
@@ -119,16 +116,15 @@ def to_markdown(conv: dict) -> str:
     lines.append(f"**URL:** {conv['url']}")
     lines.append(f"**Exported at:** {conv['created_at']}")
     lines.append("")
-    for msg in conv["messages"]:
-        role = msg["speaker"].capitalize()
-        lines.append(f"**{role}:** {msg['content']}")
+    for m in conv["messages"]:
+        role = m["speaker"].capitalize()
+        lines.append(f"**{role}:** {m['content']}")
         lines.append("")
     return "\n".join(lines)
 
 
 def escape_latex(text: str) -> str:
-    # minimal escaping for LaTeX special chars
-    replacements = {
+    repl = {
         "\\": r"\textbackslash{}",
         "&": r"\&",
         "%": r"\%",
@@ -140,7 +136,7 @@ def escape_latex(text: str) -> str:
         "~": r"\textasciitilde{}",
         "^": r"\textasciicircum{}",
     }
-    for k, v in replacements.items():
+    for k, v in repl.items():
         text = text.replace(k, v)
     return text
 
@@ -158,15 +154,12 @@ def to_latex(conv: dict) -> str:
         r"\textbf{URL:} " + escape_latex(conv["url"]) + r"\\",
         r"\textbf{Exported at:} " + escape_latex(conv["created_at"]) + r"\\[1em]",
     ]
-    for msg in conv["messages"]:
-        role = escape_latex(msg["speaker"].capitalize())
-        content = escape_latex(msg["content"])
+    for m in conv["messages"]:
+        role = escape_latex(m["speaker"].capitalize())
+        content = escape_latex(m["content"])
         parts.append(r"\textbf{" + role + r":} " + content + r"\\[0.75em]")
     parts.append(r"\end{document}")
     return "\n".join(parts)
-
-
-# (PDF intentionally not implemented yet; see note in /export)
 
 
 # ---------- Routes ----------
@@ -175,10 +168,11 @@ def to_latex(conv: dict) -> str:
 def root():
     return JSONResponse(
         {
-            "msg": "rocthinc: POST /export { url, formats }",
+            "msg": "rocthinc online",
+            "hint": "POST /export { url, formats }",
             "example": {
                 "url": "https://share.chatgpt.com/...",
-                "formats": ["md", "tex"]
+                "formats": ["md", "tex"],
             },
         }
     )
@@ -186,12 +180,14 @@ def root():
 
 @app.post("/export")
 def export(req: ExportRequest):
+    # default formats if none provided
     formats: List[ExportFormat] = req.formats or ["md", "tex"]
 
-    conv = parse_conversation_from_url(req.url)
+    conv = parse_conversation(req.url)
 
+    # Build in-memory ZIP
     buf = BytesIO()
-    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as z:
+    with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as z:
         if "md" in formats:
             md = to_markdown(conv)
             z.writestr("conversation.md", md)
@@ -201,24 +197,21 @@ def export(req: ExportRequest):
             z.writestr("conversation.tex", tex)
 
         if "pdf" in formats:
-            # NOT IMPLEMENTED YET
-            # This placeholder keeps the API shape without failing.
-            # Later you can generate a real PDF from Markdown or LaTeX.
+            # Placeholder to keep the API surface ready for when you add real PDF export
             z.writestr(
                 "README_PDF.txt",
-                "PDF export is not implemented yet in this build. "
-                "Use the LaTeX file to compile a PDF locally."
+                "PDF export is not implemented in this build.\n"
+                "Use conversation.tex to compile a PDF locally.",
             )
 
     buf.seek(0)
-
     return StreamingResponse(
         buf,
         media_type="application/zip",
-        headers={"Content-Disposition": 'attachment; filename="conversation_export.zip"'},
+        headers={"Content-Disposition": 'attachment; filename=\"conversation_export.zip\"'},
     )
 
-# If you ever want to run this locally:
+# Optional: for local dev, not needed on Railway
 # if __name__ == "__main__":
 #     import uvicorn
 #     uvicorn.run(app, host="0.0.0.0", port=8000)
