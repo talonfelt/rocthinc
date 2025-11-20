@@ -88,18 +88,32 @@ def fetch_html_or_explain(url: str) -> str:
         )
 
     html = resp.text
-    lower = html.lower()
+    #lower = html.lower()
 
     # Heuristic login-page detection
-    if any(w in lower for w in ("login", "log in", "sign in", "signin", "authentication")) and \
-       ("password" in lower or "forgot password" in lower):
+    #if any(w in lower for w in ("login", "log in", "sign in", "signin", "authentication")) and \
+    #   ("password" in lower or "forgot password" in lower):
+    #    raise HTTPException(
+    #        status_code=400,
+    #        detail="This looks like a login page, not the chat itself. "
+    #               "rocthinc can only export chats that are visible to anyone with the link. "
+    #               "If your AI platform has a 'Share' button, tap that and paste the resulting URL instead."
+    #    )
+        # Smarter login-wall detection — ignore harmless "Login" button in header
+    lower = html.lower()
+    if ("enter your password" in lower or
+        "sign in to continue" in lower or
+        "email address" in lower and "password" in lower or
+        "authentication required" in lower or
+        "you need to log in" in lower or
+        "create an account" in lower or
+        "open in the chatgpt app" in lower):
         raise HTTPException(
             status_code=400,
-            detail="This looks like a login page, not the chat itself. "
-                   "rocthinc can only export chats that are visible to anyone with the link. "
-                   "If your AI platform has a 'Share' button, tap that and paste the resulting URL instead."
+            detail="This is a real login / app-wall page. Open the share link in a browser, "
+                   "click 'Continue in browser' if it asks, wait for the full chat to load, "
+                   "then copy that new URL and paste it here."
         )
-
     # Heuristic "open in app" / interstitial detection
     if "open in app" in lower or "download our app" in lower:
         raise HTTPException(
