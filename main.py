@@ -1,19 +1,15 @@
 import time
-import json
 import re
 import zipfile
 from io import BytesIO
 from pathlib import Path
+from typing import Optional, List, Literal
 
+import requests
+from bs4 import BeautifulSoup  # only used for robustness if you want to extend later
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
-from typing import Optional, List, Literal
-
-from playwright.async_api import async_playwright
-from bs4 import BeautifulSoup
-import requests
-
 
 # -------------------------------------------------------------
 # App bootstrap
@@ -21,8 +17,8 @@ import requests
 
 app = FastAPI(
     title="rocthinc",
-    version="0.6.0",
-    description="Render shared AI chats (ChatGPT, Claude, etc.) → Markdown + LaTeX."
+    version="1.0.0",
+    description="Any web page → Markdown + LaTeX (zipped)."
 )
 
 ExportFormat = Literal["md", "tex", "pdf"]
@@ -55,254 +51,143 @@ def escape_latex(text: str) -> str:
     return text
 
 
-# -------------------------------------------------------------
-# MARKDOWN + LATEX
-# -------------------------------------------------------------
-
-def to_markdown(conv: dict) -> str:
-    lines = []
-    lines.append("# Conversation Export\n")
-    lines.append(f"**Source:** {conv['source']}")
-    lines.append(f"**URL:** {conv['url']}")
-    lines.append(f"**Exported at:** {conv['created_at']}\n")
-
-    for msg in conv["messages"]:
-        lines.append(f"**{msg['speaker'].capitalize()}:** {msg['content']}\n")
-
-    return "\n".join(lines)
-
-
-def to_latex(conv: dict) -> str:
-    out = [
-        r"\documentclass{article}",
-        r"\usepackage[margin=1in]{geometry}",
-        r"\usepackage[T1]{fontenc}",
-        r"\usepackage[utf8]{inputenc}",
-        r"\begin{document}",
-        r"\section*{Conversation Export}",
-        "",
-        r"\textbf{Source:} " + escape_latex(conv["source"]) + r"\\",
-        r"\textbf{URL:} " + escape_latex(conv["url"]) + r"\\",
-        r"\textbf{Exported at:} " + escape_latex(conv["created_at"]) + r"\\[1em]",
-    ]
-
-    for msg in conv["messages"]:
-        role = escape_latex(msg["speaker"].capitalize())
-        content = escape_latex(msg["content"])
-        out.append(rf"\textbf{{{role}:}} {content} \\[0.75em]")
-
-    out.append(r"\end{document}")
-
-    return "\n".join(out)
-
-
-# -------------------------------------------------------------
-# PLAYWRIGHT BROWSER RENDERING
-# -------------------------------------------------------------
-
-async def render_page_html(url: str) -> str:
+def strip_html_to_text(html: str) -> str:
     """
-    Launch Chromium headless, load URL, wait for the real chat content.
+    Generic HTML → plain text:
+    - remove <script> and <style>
+    - strip all tags
+    - collapse whitespace
     """
+    html = re.sub(r"<script.*?</script>", "", html, flags=re.S | re.I)
+    html = re.sub(r"<style.*?</style>", "", html, flags=re.S | re.I)
+    html = re.sub(r"<[^>]+>", " ", html)
+    html = re.sub(r"\s+", " ", html).strip()
+    return html
 
+
+# -------------------------------------------------------------
+# Fetch + parse any page (no ChatGPT special-casing)
+# -------------------------------------------------------------
+
+def fetch_html_or_explain(url: str) -> str:
+    """
+    Fetch HTML and raise a clear HTTPException only for real errors.
+    """
     try:
-        async with async_playwright() as pw:
-            browser = await pw.chromium.launch(args=["--no-sandbox"])
-            page = await browser.new_page()
-
-            resp = await page.goto(url, timeout=35000)
-
-            if resp is None:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Page did not load. Check the URL."
-                )
-
-            if resp.status >= 400:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Page returned HTTP {resp.status}. Cannot read this link."
-                )
-
-            # Wait for any ChatGPT message nodes if possible
-            try:
-                await page.wait_for_selector("[data-message-author-role]", timeout=8000)
-            except:
-                pass  # Try anyway
-
-            html = await page.content()
-            await browser.close()
-            return html
-
+        resp = requests.get(url, timeout=20)
     except Exception as e:
         raise HTTPException(
             status_code=400,
-            detail=f"rocthinc tried to render that ChatGPT page but something went wrong. ({e})"
+            detail=(
+                "rocthinc could not reach that URL. "
+                "Check that it’s correct and publicly reachable. "
+                f"(Details: {e})"
+            ),
         )
 
+    if resp.status_code >= 400:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"The URL you pasted returned HTTP {resp.status_code}. "
+                "rocthinc can only export pages that load normally in a browser."
+            ),
+        )
 
-# -------------------------------------------------------------
-# PARSERS (DOM → JSON → fallback text)
-# -------------------------------------------------------------
+    return resp.text
 
-def parse_dom_chat(html: str, url: str):
-    soup = BeautifulSoup(html, "html.parser")
-    nodes = soup.find_all(attrs={"data-message-author-role": True})
 
-    if not nodes:
-        return None
+def parse_conversation(url: str) -> dict:
+    """
+    Generic pipeline:
+      URL → HTML → plain text → single 'assistant' message.
+    No AI-site special handling at all.
+    """
+    html = fetch_html_or_explain(url)
+    text = strip_html_to_text(html)
 
-    messages = []
-    for node in nodes:
-        role = node.get("data-message-author-role") or "assistant"
-        text = node.get_text("\n", strip=True)
-        if text:
-            messages.append({"speaker": role, "content": text})
+    max_len = 20000
+    if len(text) > max_len:
+        text = text[:max_len] + " … [truncated]"
 
-    if not messages:
-        return None
-
+    messages = [
+        {"speaker": "assistant", "content": text},
+    ]
     return {
-        "source": "chatgpt",
+        "source": "web",
         "url": url,
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "messages": messages,
     }
 
 
-def parse_next_data(html: str, url: str):
-    soup = BeautifulSoup(html, "html.parser")
-    script = soup.find("script", id="__NEXT_DATA__")
-
-    if not script or not script.string:
-        return None
-
-    try:
-        data = json.loads(script.string)
-    except:
-        return None
-
-    # Try Next.js
-    sd = (
-        data.get("props", {})
-        .get("pageProps", {})
-        .get("serverResponse", {})
-        .get("data")
-    )
-
-    # Try Remix fallback
-    if sd is None:
-        try:
-            remix = (
-                data.get("state", {})
-                .get("loaderData", {})
-                .get("routes/share.$shareId.($action)", {})
-            )
-            sd = remix.get("serverResponse", {}).get("data")
-        except:
-            sd = None
-
-    if sd is None:
-        return None
-
-    mapping = sd.get("mapping")
-    if not isinstance(mapping, dict):
-        return None
-
-    items = []
-    counter = 0
-
-    for _, node in mapping.items():
-        msg = node.get("message")
-        if not msg:
-            continue
-
-        role = (msg.get("author") or {}).get("role") or "assistant"
-        content = msg.get("content") or {}
-        parts = content.get("parts") or []
-        text = "\n".join(parts) if parts else content.get("text", "")
-
-        text = (text or "").strip()
-        if not text:
-            continue
-
-        items.append(
-            {
-                "speaker": role,
-                "content": text,
-                "sort": counter,
-            }
-        )
-        counter += 1
-
-    if not items:
-        return None
-
-    items.sort(key=lambda x: x["sort"])
-
-    return {
-        "source": "chatgpt",
-        "url": url,
-        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "messages": [{"speaker": i["speaker"], "content": i["content"]} for i in items],
-    }
-
-
-def fallback_text(html: str, url: str):
-    clean = re.sub(r"<script.*?</script>", "", html, flags=re.S)
-    clean = re.sub(r"<style.*?</style>", "", clean, flags=re.S)
-    clean = re.sub(r"<[^>]+>", " ", clean)
-    clean = re.sub(r"\s+", " ", clean).strip()
-
-    if len(clean) > 20000:
-        clean = clean[:20000] + "… [truncated]"
-
-    return {
-        "source": "html",
-        "url": url,
-        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "messages": [{"speaker": "assistant", "content": clean}],
-    }
-
-
 # -------------------------------------------------------------
-# MAIN CONVERSATION PIPELINE
+# MARKDOWN + LATEX
 # -------------------------------------------------------------
 
-async def process(url: str):
-    html = await render_page_html(url)
+def to_markdown(conv: dict) -> str:
+    lines = []
+    lines.append("# Page Export")
+    lines.append("")
+    lines.append(f"**Source:** {conv['source']}")
+    lines.append(f"**URL:** {conv['url']}")
+    lines.append(f"**Exported at:** {conv['created_at']}")
+    lines.append("")
+    for m in conv["messages"]:
+        role = m["speaker"].capitalize()
+        lines.append(f"**{role}:** {m['content']}")
+        lines.append("")
+    return "\n".join(lines)
 
-    conv = parse_dom_chat(html, url)
-    if conv:
-        return conv
 
-    conv = parse_next_data(html, url)
-    if conv:
-        return conv
-
-    return fallback_text(html, url)
+def to_latex(conv: dict) -> str:
+    parts = [
+        r"\documentclass{article}",
+        r"\usepackage[margin=1in]{geometry}",
+        r"\usepackage[T1]{fontenc}",
+        r"\usepackage[utf8]{inputenc}",
+        r"\begin{document}",
+        r"\section*{Page Export}",
+        "",
+        r"\textbf{Source:} " + escape_latex(conv["source"]) + r"\\",
+        r"\textbf{URL:} " + escape_latex(conv["url"]) + r"\\",
+        r"\textbf{Exported at:} " + escape_latex(conv["created_at"]) + r"\\[1em]",
+    ]
+    for m in conv["messages"]:
+        role = escape_latex(m["speaker"].capitalize())
+        content = escape_latex(m["content"])
+        parts.append(r"\textbf{" + role + r":} " + content + r"\\[0.75em]")
+    parts.append(r"\end{document}")
+    return "\n".join(parts)
 
 
 # -------------------------------------------------------------
 # ZIP OUTPUT
 # -------------------------------------------------------------
 
-def zip_output(conv: dict, formats: List[str]):
-    buf = BytesIO()
+def make_zip_response(url: str, formats: List[ExportFormat]):
+    conv = parse_conversation(url)
 
-    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as z:
+    buf = BytesIO()
+    with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as z:
         if "md" in formats:
-            z.writestr("conversation.md", to_markdown(conv))
+            z.writestr("page.md", to_markdown(conv))
         if "tex" in formats:
-            z.writestr("conversation.tex", to_latex(conv))
+            z.writestr("page.tex", to_latex(conv))
         if "pdf" in formats:
-            z.writestr("README_pdf.txt", "PDF is not implemented. Use conversation.tex.")
+            z.writestr(
+                "README_PDF.txt",
+                "PDF export not implemented yet. "
+                "Use page.tex to compile a PDF locally.",
+            )
 
     buf.seek(0)
     return StreamingResponse(
         buf,
         media_type="application/zip",
-        headers={"Content-Disposition": 'attachment; filename="conversation.zip"'},
+        headers={
+            "Content-Disposition": 'attachment; filename=\"page_export.zip\"'
+        },
     )
 
 
@@ -311,27 +196,49 @@ def zip_output(conv: dict, formats: List[str]):
 # -------------------------------------------------------------
 
 @app.get("/", response_class=HTMLResponse)
-def home():
-    path = Path(__file__).parent / "index.html"
-    return path.read_text() if path.exists() else "<h1>rocthinc</h1>"
+def web_ui():
+    """
+    Serve the static index.html that contains your rocthinc UI.
+    """
+    html_path = Path(__file__).parent / "index.html"
+    if not html_path.exists():
+        return HTMLResponse(
+            "<h1>rocthinc</h1><p>index.html not found on server.</p>",
+            status_code=500,
+        )
+    return html_path.read_text(encoding="utf-8")
 
 
 @app.post("/export")
-async def export_post(req: ExportRequest):
-    formats = req.formats or ["md", "tex"]
-    conv = await process(req.url)
-    return zip_output(conv, formats)
+def export_post(req: ExportRequest):
+    """
+    JSON API used by your web UI and Shortcuts:
+      { "url": "...", "formats": ["md","tex"] }
+    """
+    formats: List[ExportFormat] = req.formats or ["md", "tex"]
+    return make_zip_response(req.url, formats)
 
 
 @app.get("/export")
-async def export_get(
-    url: str = Query(...),
-    formats: Optional[str] = Query("md,tex")
+def export_get(
+    url: str = Query(..., description="Any web page URL"),
+    formats: Optional[str] = Query(
+        None,
+        description="Comma-separated formats, e.g. md,tex or md,tex,pdf",
+    ),
 ):
-    fmts = [f.strip() for f in formats.split(",") if f.strip()]
-    conv = await process(url)
-    return zip_output(conv, fmts)
-
+    """
+    GET API for manual calls:
+      /export?url=...&formats=md,tex
+    """
+    if formats:
+        fmts = [f.strip() for f in formats.split(",") if f.strip()]
+        fmts = [f for f in fmts if f in ("md", "tex", "pdf")]
+        if not fmts:
+            fmts = ["md", "tex"]
+    else:
+        fmts = ["md", "tex"]
+    return make_zip_response(url, fmts)
 
 # -------------------------------------------------------------
 # END OF FILE
