@@ -4,81 +4,31 @@
   <meta charset="utf-8" />
   <title>rocthinc — from chat to chapter</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <meta name="description" content="Paste the URL of an AI chat you have open → get Markdown + LaTeX exports." />
+  <meta name="description" content="Paste any web page URL → get clean Markdown + LaTeX." />
   <meta property="og:title" content="rocthinc — from chat to chapter">
-  <meta property="og:description" content="Paste the URL of a chat you can see in your browser and rocthinc turns it into clean documents.">
+  <meta property="og:description" content="Any page you can open in a browser becomes a beautiful document.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://rocthinc.cc">
   <style>
-    :root{
-      --bg:#0e0f12;
-      --panel:#15171b;
-      --ink:#e8ecf3;
-      --muted:#9aa3ad;
-      --line:#232730;
-      --accent:#7aa2ff;
-      --accent-2:#8ef0de;
-      --danger:#ff6b81;
-    }
-    *{box-sizing:border-box}
-    html,body{
-      margin:0;
-      background:var(--bg);
-      color:var(--ink);
-      font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Inter,Roboto,sans-serif;
-    }
+    :root{--bg:#0e0f12;--panel:#15171b;--ink:#e8ecf3;--muted:#9aa3ad;--line:#232730;--accent:#7aa2ff;--accent-2:#8ef0de;--danger:#ff6b81}
+    *{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--ink);font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Inter,Roboto,sans-serif}
     .wrap{max-width:980px;margin:0 auto;padding:28px}
     header{display:flex;align-items:center;gap:12px;margin:18px 0 28px}
     .dot{width:12px;height:12px;border-radius:50%;background:var(--accent);box-shadow:0 0 18px var(--accent)}
     h1{margin:0;font-size:28px;letter-spacing:.2px}
     .pill{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:6px 10px;color:var(--muted);font-size:12px}
     .hero{display:grid;grid-template-columns:1.1fr .9fr;gap:22px}
-    @media (max-width:950px){
-      .hero{grid-template-columns:1fr;gap:14px}
-      .card{padding:16px}
-      p.lead{font-size:.95rem}
-      code{font-size:.85rem;word-break:break-word}
-    }
+    @media (max-width:950px){.hero{grid-template-columns:1fr}}
     .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:22px}
     p.lead{color:var(--muted);margin:.25rem 0 1rem;line-height:1.5}
     label{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:8px;margin-top:6px}
-    input[type="text"]{
-      width:100%;
-      padding:10px 12px;
-      border-radius:10px;
-      border:1px solid var(--line);
-      background:#0c0d10;
-      color:var(--ink);
-      font-size:14px;
-    }
-    input[type="checkbox"]{accent-color:var(--accent);}
-    .btn{
-      display:inline-flex;
-      gap:8px;
-      align-items:center;
-      border-radius:12px;
-      padding:10px 16px;
-      font-weight:600;
-      border:none;
-      cursor:pointer;
-      background:linear-gradient(135deg,var(--accent),var(--accent-2));
-      color:#050b12;
-      margin-top:10px;
-    }
+    input[type="text"]{width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:#0c0d10;color:var(--ink);font-size:14px}
+    input[type="checkbox"]{accent-color:var(--accent)}
+    .btn{display:inline-flex;gap:8px;align-items:center;border-radius:12px;padding:10px 16px;font-weight:600;border:none;cursor:pointer;background:linear-gradient(135deg,var(--accent),var(--accent-2));color:#050b12;margin-top:10px}
     .btn:disabled{opacity:.4;cursor:default}
     .tiny{font-size:11px;color:var(--muted);margin-top:6px}
     .status{font-size:12px;margin-top:10px;min-height:16px}
-    .status.ok{color:var(--accent-2)}
-    .status.err{color:var(--danger)}
-    pre{
-      background:#0c0f13;
-      border-radius:10px;
-      border:1px solid #1f2430;
-      padding:10px 12px;
-      font-size:12px;
-      color:var(--muted);
-      overflow-x:auto;
-    }
+    .status.ok{color:var(--accent-2)}.status.err{color:var(--danger)}
     footer{margin:28px 0 8px;color:var(--muted);font-size:12px;text-align:center}
   </style>
 </head>
@@ -87,50 +37,41 @@
     <header>
       <div class="dot"></div>
       <h1>.rocthinc</h1>
-      <span class="pill">from chat to chapter</span>
+      <span class="pill">from page to chapter</span>
     </header>
 
     <section class="hero">
-      <!-- Left: interactive UI -->
       <div class="card">
         <p class="lead">
-          Paste the URL of an AI chat you have open (ChatGPT, Claude, etc.), choose formats, and rocthinc will export it
-          as Markdown + LaTeX in a single <code>.zip</code>.
+          Paste the URL of any web page you can open in a browser and rocthinc will turn it into clean Markdown + LaTeX.
         </p>
 
-        <label>Chat URL</label>
-        <input id="url" type="text" placeholder="https://chatgpt.com/c/..." />
+        <label>Page URL</label>
+        <input id="url" type="text" placeholder="https://example.com/anything" />
 
         <div style="margin-top:10px;font-size:13px;color:var(--muted);">Formats</div>
         <label><input id="fmt-md" type="checkbox" checked /> Markdown (.md)</label>
         <label><input id="fmt-tex" type="checkbox" checked /> LaTeX (.tex)</label>
-        <label><input id="fmt-pdf" type="checkbox" /> PDF (placeholder note only, for now)</label>
+        <label><input id="fmt-pdf" type="checkbox" /> PDF (coming soon)</label>
 
-        <button id="go" class="btn">
-          <span>Export conversation</span>
-        </button>
+        <button id="go" class="btn"><span>Export page</span></button>
 
         <div id="status" class="status"></div>
         <div class="tiny">
-          Make sure you can see the full chat in a browser tab before you copy the URL.
-          rocthinc can’t click “Continue in browser” or log in for you.
+          Works on articles, docs, AI chats, anything public you can see in a browser tab.
         </div>
       </div>
 
-      <!-- Right: API docs / example -->
       <div class="card">
         <div style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">API</div>
-        <p class="lead">Use the same backend from scripts or other tools.</p>
+        <p class="lead">Same backend from scripts or shortcuts.</p>
         <pre>POST /export
 Content-Type: application/json
 
 {
-  "url": "https://chatgpt.com/c/...",
+  "url": "https://example.com",
   "formats": ["md","tex"]
 }</pre>
-        <p class="tiny">
-          Response: <code>application/zip</code> with <code>conversation.md</code> and <code>conversation.tex</code>.
-        </p>
       </div>
     </section>
 
@@ -139,77 +80,42 @@ Content-Type: application/json
 
   <script>
     document.getElementById('y').textContent = new Date().getFullYear();
-
     const urlInput = document.getElementById('url');
     const btn = document.getElementById('go');
     const statusEl = document.getElementById('status');
 
-    async function exportConversation() {
+    async function go() {
       const url = urlInput.value.trim();
       const formats = [];
       if (document.getElementById('fmt-md').checked) formats.push('md');
       if (document.getElementById('fmt-tex').checked) formats.push('tex');
       if (document.getElementById('fmt-pdf').checked) formats.push('pdf');
 
-      if (!url) {
-        statusEl.textContent = 'Enter a URL first.';
-        statusEl.className = 'status err';
-        return;
-      }
-      if (formats.length === 0) {
-        statusEl.textContent = 'Select at least one format.';
-        statusEl.className = 'status err';
-        return;
-      }
+      if (!url) { statusEl.textContent = 'Enter a URL first.'; statusEl.className = 'status err'; return; }
+      if (formats.length === 0) { statusEl.textContent = 'Pick at least one format.'; statusEl.className = 'status err'; return; }
 
-      btn.disabled = true;
-      statusEl.textContent = 'Exporting…';
-      statusEl.className = 'status';
+      btn.disabled = true; statusEl.textContent = 'Exporting…'; statusEl.className = 'status';
 
       try {
-        const res = await fetch('/export', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url, formats })
-        });
+        const res = await fetch('/export', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url, formats }) });
+        if (!res.ok) { const txt = await res.text(); statusEl.textContent = txt.includes("detail") ? JSON.parse(txt).detail : txt; statusEl.className = 'status err'; btn.disabled = false; return; }
 
-        // If backend says "login/forbidden/app wall", show the message — DO NOT download anything.
-        if (!res.ok) {
-          let text = await res.text();
-          try {
-            const parsed = JSON.parse(text);
-            if (parsed.detail) text = parsed.detail;
-          } catch (_) {
-            // leave text as-is if not JSON
-          }
-          statusEl.textContent = text;
-          statusEl.className = 'status err';
-          btn.disabled = false;
-          return;
-        }
-
-        // Successful export → download the zip
         const blob = await res.blob();
-        const urlObj = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
-        a.href = urlObj;
-        a.download = 'conversation_export.zip';
-        document.body.appendChild(a);
+        a.href = URL.createObjectURL(blob);
+        a.download = 'rocthinc_export.zip';
         a.click();
-        a.remove();
-        window.URL.revokeObjectURL(urlObj);
+        URL.revokeObjectURL(a.href);
 
-        statusEl.textContent = 'Export complete. Zip downloaded.';
-        statusEl.className = 'status ok';
+        statusEl.textContent = 'Done. Zip downloaded.'; statusEl.className = 'status ok';
       } catch (e) {
-        statusEl.textContent = 'Error: ' + e;
-        statusEl.className = 'status err';
+        statusEl.textContent = 'Error: ' + e; statusEl.className = 'status err';
       } finally {
         btn.disabled = false;
       }
     }
 
-    btn.addEventListener('click', exportConversation);
+    btn.addEventListener('click', go);
   </script>
 </body>
 </html>
