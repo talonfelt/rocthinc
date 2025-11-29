@@ -11,6 +11,19 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 
+# ---- tiny fallback for 403 (Wikipedia, etc.) ----
+from playwright.sync_api import sync_playwright
+
+def fetch_with_playwright(url: str) -> str:
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.goto(url, wait_until="networkidle", timeout=60000)
+        html = page.content()
+        browser.close()
+    return html
+# ------------------------------------------------
+
 app = FastAPI(
     title="rocthinc",
     version="1.0.0",
@@ -25,16 +38,8 @@ class ExportRequest(BaseModel):
 
 def escape_latex(text: str) -> str:
     repl = {
-        "\\": r"\textbackslash{}",
-        "&": r"\&",
-        "%": r"\%",
-        "$": r"\$",
-        "#": r"\#",
-        "_": r"\_",
-        "{": r"\{",
-        "}": r"\}",
-        "~": r"\textasciitilde{}",
-        "^": r"\textasciicircum{}",
+        "\\": r"\textbackslash{}", "&": r"\&", "%": r"\%", "$": r"\$", "#": r"\#",
+        "_": r"\_", "{": r"\{", "}": r"\}", "~": r"\textasciitilde{}", "^": r"\textasciicircum{}",
     }
     for k, v in repl.items():
         text = text.replace(k, v)
@@ -49,12 +54,19 @@ def strip_html_to_text(html: str) -> str:
 
 def fetch_html_or_explain(url: str) -> str:
     try:
-        resp = requests.get(url, timeout=20)
+        resp = requests.get(url, timeout=20, headers={"User-Agent": "rocthinc/1.0"})
+        if resp.status_code == 403:
+            # Wikipedia blocks requests → use Playwright
+            return fetch_with_playwright(url)
+        if resp.status_code >= 400:
+            raise HTTPException(status_code=400, detail=f"URL returned {resp.status_code}")
+        return resp.text
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Could not reach URL: {e}")
-    if resp.status_code >= 400:
-        raise HTTPException(status_code=400, detail=f"URL returned {resp.status_code}")
-    return resp.text
+        # fallback to Playwright on any error
+        try:
+            return fetch_with_playwright(url)
+        except:
+            raise HTTPException(status_code=400, detail=f"Could not reach URL: {e}")
 
 def parse_conversation(url: str) -> dict:
     html = fetch_html_or_explain(url)
@@ -107,7 +119,7 @@ def make_zip_response(url: str, formats: List[ExportFormat]):
         if "tex" in formats:
             z.writestr("page.tex", to_latex(conv))
         if "pdf" in formats:
-            z.writestr("README_PDF.txt", "PDF export not implemented yet. Use page.tex to compile a PDF locally.")
+            z.writestr("README_PDF.txt", "PDF export not implemented yet.")
     buf.seek(0)
     return StreamingResponse(
         buf,
@@ -118,8 +130,6 @@ def make_zip_response(url: str, formats: List[ExportFormat]):
 @app.get("/", response_class=HTMLResponse)
 def web_ui():
     html_path = Path(__file__).parent / "index.html"
-    if not html_path.exists():
-        return HTMLResponse("<h1>rocthinc</h1><p>index.html not found on server.</p>", status_code=500)
     return html_path.read_text(encoding="utf-8")
 
 @app.post("/export")
@@ -128,15 +138,8 @@ def export_post(req: ExportRequest):
     return make_zip_response(req.url, formats)
 
 @app.get("/export")
-def export_get(
-    url: str = Query(..., description="Any web page URL"),
-    formats: Optional[str] = Query(None, description="Comma-separated formats, e.g. md,tex or md,tex,pdf"),
-):
+def export_get(url: str = Query(...), formats: Optional[str] = Query(None)):
+    fmts = ["md", "tex"]
     if formats:
-        fmts = [f.strip() for f in formats.split(",") if f.strip()]
-        fmts = [f for f in fmts if f in ("md", "tex", "pdf")]
-        if not fmts:
-            fmts = ["md", "tex"]
-    else:
-        fmts = ["md", "tex"]
+        fmts = [f.strip() for f in formats.split(",") if f.strip() in ("md", "tex", "pdf")]
     return make_zip_response(url, fmts)
