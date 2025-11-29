@@ -1,2 +1,3 @@
-playwright install chromium
-playwright install-deps
+git add main.py requirements.txt
+git commit -m "fixed — actually works now"
+git push
