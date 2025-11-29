@@ -91,24 +91,35 @@ def to_markdown(conv: dict) -> str:
     return "\n".join(lines)
 
 def to_latex(conv: dict) -> str:
-    parts = [
-        r"\documentclass{article}",
-        r"\usepackage[margin=1in]{geometry}",
-        r"\usepackage[T1]{fontenc}",
-        r"\usepackage[utf8]{inputenc}",
-        r"\begin{document}",
-        r"\section*{Page Export}",
-        "",
-        r"\textbf{Source:} " + escape_latex(conv["source"]) + r"\\",
-        r"\textbf{URL:} " + escape_latex(conv["url"]) + r"\\",
-        r"\textbf{Exported at:} " + escape_latex(conv["created_at"]) + r"\\[1em]",
-    ]
-    for m in conv["messages"]:
-        role = escape_latex(m["speaker"])
-        content = escape_latex(m["content"])
-        parts.append(r"\textbf{" + role + r":} " + content + r"\\[0.75em]")
-    parts.append(r"\end{document}")
-    return "\n".join(parts)
+    # Headline becomes the title
+    headline = conv["messages"][0]["content"].split("\n", 1)[0].strip()
+    url = conv["url"]
+    exported_date = conv["created_at"][:10]  # YYYY-MM-DD only
+
+    headline = escape_latex(headline)
+    url = escape_latex(url)
+    content = escape_latex(conv["messages"][0]["content"])
+
+    return f"""\\documentclass{{article}}
+\\usepackage[margin=1in]{{geometry}}
+\\usepackage[T1]{{fontenc}}
+\\usepackage[utf8]{{inputenc}}
+\\usepackage{{hyperref}}
+
+\\title{{\\LARGE\\bfseries {headline}}}
+\\author{{}}
+\\date{{\\normalsize Exported at: {exported_date}}}
+
+\\begin{{document}}
+\\maketitle
+
+\\vspace{{1em}}
+\\noindent\\tiny\\url{{{url}}}\\par
+\\vspace{{2em}}
+
+{content}
+
+\\end{{document}}"""
 
 def make_zip_response(url: str, formats: List[ExportFormat]):
     conv = parse_conversation(url)
