@@ -1,2 +1,1 @@
-git reset --hard 389827
-git push --force
+git log --oneline -10
