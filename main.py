@@ -101,26 +101,34 @@ def to_latex(conv: dict) -> str:
     content = escape_latex(conv["messages"][0]["content"])
 
     return f"""\\documentclass{{article}}
-\\usepackage[margin=1in]{{geometry}}
-\\usepackage[T1]{{fontenc}}
-\\usepackage[utf8]{{inputenc}}
-\\usepackage{{hyperref}}
+                \\usepackage[margin=1in]{{geometry}}
+                \\usepackage[T1]{{fontenc}}
+                \\usepackage[utf8]{{inputenc}}
+                \\usepackage{{hyperref}}
 
-\\title{{\\LARGE\\bfseries {headline}}}
-\\author{{}}
-\\date{{\\normalsize Exported at: {exported_date}}}
+                \\title{{\\LARGE\\bfseries {headline}}}
+                \\author{{}}
+                \\date{{\\normalsize Exported at: {exported_date}}}
 
-\\begin{{document}}
-\\maketitle
+                \\begin{{document}}
+                \\maketitle
 
-\\vspace{{1em}}
-\\noindent\\tiny\\url{{{url}}}\\par
-\\vspace{{2em}}
+                \\vspace{{1em}}
+                \\noindent\\tiny\\url{{{url}}}\\par
+                \\vspace{{2em}}
 
-{content}
+                {content}
 
-\\end{{document}}"""
-
+                \\end{{document}}"""
+                # Add this line right after your escape_latex function (or inside it)
+                content = content.replace("→", "$\rightarrow$")
+                content = content.replace("–", "--")
+                content = content.replace("—", "---")
+                content = content.replace("“", "``")
+                content = content.replace("”", "''")
+                content = content.replace("‘", "`")
+                content = content.replace("’", "'")
+                
 def make_zip_response(url: str, formats: List[ExportFormat]):
     conv = parse_conversation(url)
     buf = BytesIO()
