@@ -1,2 +1,4 @@
-playwright install-deps chromium
-playwright install chromium
+# 3. Commit and force-push
+git add main.py index.html
+git commit -m "back to working + honest copy"
+git push --force
