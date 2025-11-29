@@ -1,4 +1,2 @@
-# 3. Commit and force-push
-git add main.py index.html
-git commit -m "back to working + honest copy"
+git reset --hard 389827   # this is the last commit before everything went to hell
 git push --force
