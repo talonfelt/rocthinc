@@ -1,2 +1,0 @@
-[build]
-command = "playwright install --with-deps chromium"
