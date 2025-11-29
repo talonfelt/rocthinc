@@ -1,2 +1,2 @@
-git reset --hard 389827   # this is the last commit before everything went to hell
-git push --force
+playwright install chromium
+playwright install-deps
