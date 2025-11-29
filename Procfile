@@ -1,1 +1,0 @@
-web: bash -c "playwright install --with-deps chromium && uvicorn main:app --host 0.0.0.0 --port $PORT"
