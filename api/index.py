@@ -1,8 +1,3 @@
-from typing import Any, Dict
-def handler(event: Dict[str, Any], context: Any):
-    from main import app  # this is your original main.py code, now called app
-    # Vercel will call this automatically
-    return app(event, context)
 import time
 import re
 import zipfile
@@ -13,10 +8,9 @@ from typing import Optional, List, Literal
 import requests
 from bs4 import BeautifulSoup
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-# Playwright fallback for blocked pages (Wikipedia, AI chats, etc.)
 from playwright.sync_api import sync_playwright
 
 def fetch_with_playwright(url: str) -> str:
@@ -28,7 +22,7 @@ def fetch_with_playwright(url: str) -> str:
         browser.close()
     return html
 
-app = FastAPI(title="rocthinc", version="1.0.0", description="Any web page → Markdown + LaTeX (zipped).")
+app = FastAPI()
 
 ExportFormat = Literal["md", "tex", "pdf"]
 
@@ -52,7 +46,7 @@ def strip_html_to_text(html: str) -> str:
 def fetch_html_or_explain(url: str) -> str:
     try:
         resp = requests.get(url, timeout=20, headers={"User-Agent": "rocthinc/1.0"})
-        if resp.status_code == 403 or resp.status_code >= 400:
+        if resp.status_code >= 400:
             return fetch_with_playwright(url)
         return resp.text
     except:
@@ -61,25 +55,18 @@ def fetch_html_or_explain(url: str) -> str:
 def parse_conversation(url: str) -> dict:
     html = fetch_html_or_explain(url)
     soup = BeautifulSoup(html, "html.parser")
-
-    # Detect AI chat
     is_ai_chat = any(domain in url.lower() for domain in ["chatgpt.com", "claude.ai", "grok.x.ai", "chat.openai.com"])
-
     messages = []
-
     if is_ai_chat:
-        # Real AI chat → You / Assistant
         for msg in soup.select("[data-message-author-role]"):
             role = "You" if msg.get("data-message-author-role") == "user" else "Assistant"
             text = msg.get_text(separator="\n", strip=True)
             messages.append({"speaker": role, "content": text})
     else:
-        # Normal page → Page_Content
         text = strip_html_to_text(html)
         if len(text) > 20000:
             text = text[:20000] + " … [truncated]"
         messages.append({"speaker": "Page_Content", "content": text})
-
     return {
         "source": "chat" if is_ai_chat else "web",
         "url": url,
@@ -96,44 +83,23 @@ def to_markdown(conv: dict) -> str:
     return "\n".join(lines)
 
 def to_latex(conv: dict) -> str:
-    # Headline becomes the title
     headline = conv["messages"][0]["content"].split("\n", 1)[0].strip()
-    url = conv["url"]
-    exported_date = conv["created_at"][:10]  # YYYY-MM-DD only
-
     headline = escape_latex(headline)
-    url = escape_latex(url)
-    content = escape_latex(conv["messages"][0]["content"])
-
+    url = escape_latex(conv["url"])
+    exported_date = conv["created_at"][:10]
+    content = escape_latex(" ".join(m["content"] for m in conv["messages"]))
+    content = content.replace("→", r"$\rightarrow$").replace("–", "--").replace("—", "---").replace("“", "``").replace("”", "''")
     return f"""\\documentclass{{article}}
-                \\usepackage[margin=1in]{{geometry}}
-                \\usepackage[T1]{{fontenc}}
-                \\usepackage[utf8]{{inputenc}}
-                \\usepackage{{hyperref}}
+\\usepackage[margin=1in]{{geometry}}
+\\usepackage{{hyperref}}
+\\title{{{headline}}}
+\\date{{Exported {exported_date}}}
+\\begin{{document}}
+\\maketitle
+\\url{{{url}}}
+{content}
+\\end{{document}}"""
 
-                \\title{{\\LARGE\\bfseries {headline}}}
-                \\author{{}}
-                \\date{{\\normalsize Exported at: {exported_date}}}
-
-                \\begin{{document}}
-                \\maketitle
-
-                \\vspace{{1em}}
-                \\noindent\\tiny\\url{{{url}}}\\par
-                \\vspace{{2em}}
-
-                {content}
-
-                \\end{{document}}"""
-                # Add this line right after your escape_latex function (or inside it)
-                content = content.replace("→", "$\rightarrow$")
-                content = content.replace("–", "--")
-                content = content.replace("—", "---")
-                content = content.replace("“", "``")
-                content = content.replace("”", "''")
-                content = content.replace("‘", "`")
-                content = content.replace("’", "'")
-                
 def make_zip_response(url: str, formats: List[ExportFormat]):
     conv = parse_conversation(url)
     buf = BytesIO()
@@ -147,10 +113,6 @@ def make_zip_response(url: str, formats: List[ExportFormat]):
     buf.seek(0)
     return StreamingResponse(buf, media_type="application/zip", headers={"Content-Disposition": 'attachment; filename="page_export.zip"'})
 
-@app.get("/", response_class=HTMLResponse)
-def web_ui():
-    return (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
-
 @app.post("/export")
 def export_post(req: ExportRequest):
     formats = req.formats or ["md", "tex"]
@@ -162,5 +124,3 @@ def export_get(url: str = Query(...), formats: Optional[str] = Query(None)):
     if formats:
         fmts = [f.strip() for f in formats.split(",") if f.strip() in ("md", "tex", "pdf")]
     return make_zip_response(url, fmts)
-    
-app = handler  # tells Vercel what to run
