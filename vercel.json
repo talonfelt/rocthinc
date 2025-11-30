@@ -1,15 +1,10 @@
 {
   "version": 2,
-  "functions": {
-    "api/index.py": {
-      "memory": 2048,
-      "maxDuration": 60
-    }
-  },
   "builds": [
     {
       "src": "api/index.py",
-      "use": "@vercel/python"
+      "use": "@vercel/python",
+      "config": { "maxLambdaSize": "50mb", "memory": 2048, "maxDuration": 60 }
     },
     {
       "src": "index.html",
@@ -19,11 +14,12 @@
   "routes": [
     {
       "src": "/export",
+      "methods": ["GET", "POST"],
       "dest": "api/index.py"
     },
     {
       "src": "/(.*)",
-      "dest": "/index.html"
+      "dest": "index.html"
     }
   ]
 }
