@@ -1,3 +1,3 @@
-git add api/index.py
-git commit -m "remove handler – fastapi native"
+git add vercel.json
+git commit -m "final: proper routing – static + /export function"
 git push
