@@ -1,3 +1,8 @@
+from typing import Any, Dict
+def handler(event: Dict[str, Any], context: Any):
+    from main import app  # this is your original main.py code, now called app
+    # Vercel will call this automatically
+    return app(event, context)
 import time
 import re
 import zipfile
@@ -157,3 +162,5 @@ def export_get(url: str = Query(...), formats: Optional[str] = Query(None)):
     if formats:
         fmts = [f.strip() for f in formats.split(",") if f.strip() in ("md", "tex", "pdf")]
     return make_zip_response(url, fmts)
+    
+app = handler  # tells Vercel what to run
