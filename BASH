@@ -1,3 +1,3 @@
 git add vercel.json
-git commit -m "final: proper routing – static + /export function"
+git commit -m "final routing fix – export works"
 git push
