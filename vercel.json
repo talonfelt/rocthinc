@@ -1,17 +1,29 @@
 {
   "version": 2,
   "functions": {
-    "api/index.py": { "memory": 2048, "maxDuration": 60 }
+    "api/index.py": {
+      "memory": 2048,
+      "maxDuration": 60
+    }
   },
   "builds": [
     {
       "src": "api/index.py",
       "use": "@vercel/python"
+    },
+    {
+      "src": "index.html",
+      "use": "@vercel/static"
     }
   ],
   "routes": [
-    { "src": "/export", "dest": "api/index.py" },
-    { "src": "/export/(.*)", "dest": "dest": "api/index.py" },
-    { "src": "/(.*)", "dest": "/" }
+    {
+      "src": "/export",
+      "dest": "api/index.py"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
+    }
   ]
 }
